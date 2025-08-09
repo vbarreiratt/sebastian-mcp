@@ -1,33 +1,19 @@
 // Local: app/api/chat/route.ts
 
-import { OpenAIEmbeddings, ChatOpenAI } from "@langchain/openai";
+import { OpenAIEmbeddings } from "@langchain/openai";
 import { UpstashVectorStore } from "@langchain/community/vectorstores/upstash";
 import { Index } from "@upstash/vector";
-// CORREÇÃO: Caminhos de importação da Langchain ajustados para a nova estrutura
-import { PromptTemplate } from "langchain/prompts";
-import { StringOutputParser } from "langchain/schema/output_parser";
-import { RunnablePassthrough, RunnableSequence } from "langchain/schema/runnable";
-import { formatDocumentsAsString } from "langchain/util/document";
-import { StreamingTextResponse } from "ai";
+import type { Document } from "@langchain/core/documents";
+import { streamText } from "ai";
+import { openai } from "@ai-sdk/openai";
 
 // Executa a API na Edge Network da Vercel para baixa latência
 export const runtime = 'edge';
 
-// O modelo do prompt que instrui a IA sobre como se comportar.
-const template = `
-Você é um assistente especialista em teoria musical chamado Sebastian. Sua missão é responder à pergunta do usuário de forma clara e precisa, baseando-se SOMENTE no contexto fornecido abaixo.
-Se a informação não estiver no contexto, diga "Com base no meu conhecimento atual, não encontrei informações sobre isso." Não invente respostas. Seja sempre cordial.
-
-Contexto:
-{context}
-
-Pergunta:
-{question}
-
-Resposta útil:
-`;
-
-const prompt = PromptTemplate.fromTemplate(template);
+// Função helper para formatar documentos como string
+const formatDocumentsAsString = (docs: Document[]): string => {
+  return docs.map((doc) => doc.pageContent).join("\n\n");
+};
 
 export async function POST(req: Request) {
   try {
@@ -40,32 +26,27 @@ export async function POST(req: Request) {
       token: process.env.UPSTASH_VECTOR_REST_TOKEN!,
     });
     const embeddings = new OpenAIEmbeddings({ modelName: "text-embedding-3-small" });
-    const llm = new ChatOpenAI({
-      modelName: "gpt-4o-mini",
+
+    // 2. Inicializa o Vector Store e busca documentos relevantes
+    const vectorStore = new UpstashVectorStore(embeddings, { index });
+    const retriever = vectorStore.asRetriever(4);
+    const relevantDocs = await retriever.invoke(question);
+    const context = formatDocumentsAsString(relevantDocs);
+
+    // 3. Usa streamText do AI SDK v5 para gerar resposta
+    const result = streamText({
+      model: openai('gpt-4o-mini'),
       temperature: 0.2,
-      streaming: true,
+      system: `Você é um assistente especialista em teoria musical chamado Sebastian. Sua missão é responder à pergunta do usuário de forma clara e precisa, baseando-se SOMENTE no contexto fornecido abaixo.
+Se a informação não estiver no contexto, diga "Com base no meu conhecimento atual, não encontrei informações sobre isso." Não invente respostas. Seja sempre cordial.
+
+Contexto:
+${context}`,
+      prompt: question,
     });
 
-    // 2. Inicializa o Vector Store e o Retriever
-    const vectorStore = new UpstashVectorStore({ index, embeddings });
-    const retriever = vectorStore.asRetriever(4);
-
-    // 3. Cria a "Chain" (cadeia de execução) com LangChain
-    const chain = RunnableSequence.from([
-      {
-        context: retriever.pipe(formatDocumentsAsString),
-        question: new RunnablePassthrough(),
-      },
-      prompt,
-      llm,
-      new StringOutputParser(),
-    ]);
-
-    // 4. Executa a cadeia e cria um stream de resposta
-    const stream = await chain.stream(question);
-
-    // 5. Retorna a resposta em streaming para o cliente
-    return new StreamingTextResponse(stream);
+    // 4. Retorna a resposta em streaming usando a nova API do AI SDK v5
+    return result.toTextStreamResponse();
 
   } catch (e) {
     if (e instanceof Error) {

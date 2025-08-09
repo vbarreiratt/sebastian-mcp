@@ -9,7 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^2.0.8",
     "@langchain/community": "^0.3.50",
+    "@langchain/core": "^0.3.68",
     "@langchain/openai": "^0.6.7",
     "@upstash/vector": "^1.2.2",
     "ai": "^5.0.8",
