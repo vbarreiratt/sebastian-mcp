@@ -3,12 +3,12 @@
 import { OpenAIEmbeddings, ChatOpenAI } from "@langchain/openai";
 import { UpstashVectorStore } from "@langchain/community/vectorstores/upstash";
 import { Index } from "@upstash/vector";
-import { PromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser } from "@langchain/core/output_parsers";
-import { RunnableSequence, RunnablePassthrough } from "@langchain/core/runnables";
+// CORREÇÃO: Caminhos de importação da Langchain ajustados para a nova estrutura
+import { PromptTemplate } from "langchain/prompts";
+import { StringOutputParser } from "langchain/schema/output_parser";
+import { RunnablePassthrough, RunnableSequence } from "langchain/schema/runnable";
 import { formatDocumentsAsString } from "langchain/util/document";
-// CORREÇÃO: Importações da biblioteca 'ai' atualizadas
-import { LangChainAdapter, StreamingTextResponse } from "ai";
+import { StreamingTextResponse } from "ai";
 
 // Executa a API na Edge Network da Vercel para baixa latência
 export const runtime = 'edge';
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
 
     // 2. Inicializa o Vector Store e o Retriever
     const vectorStore = new UpstashVectorStore({ index, embeddings });
-    const retriever = vectorStore.asRetriever(4); // Busca os 4 chunks mais relevantes
+    const retriever = vectorStore.asRetriever(4);
 
     // 3. Cria a "Chain" (cadeia de execução) com LangChain
     const chain = RunnableSequence.from([
@@ -61,13 +61,13 @@ export async function POST(req: Request) {
       new StringOutputParser(),
     ]);
 
-    // 4. CORREÇÃO: Usa o LangChainAdapter para criar um stream compatível
+    // 4. Executa a cadeia e cria um stream de resposta
     const stream = await chain.stream(question);
 
     // 5. Retorna a resposta em streaming para o cliente
     return new StreamingTextResponse(stream);
 
-  } catch (e) { // CORREÇÃO: Removido o tipo 'any' para satisfazer o ESLint
+  } catch (e) {
     if (e instanceof Error) {
         console.error(e);
         return new Response(JSON.stringify({ error: e.message }), { status: 500 });
