@@ -6,8 +6,9 @@ import { Index } from "@upstash/vector";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { RunnableSequence, RunnablePassthrough } from "@langchain/core/runnables";
-import { StreamingTextResponse, LangChainStream } from "ai";
 import { formatDocumentsAsString } from "langchain/util/document";
+// CORREÇÃO: Importações da biblioteca 'ai' atualizadas
+import { LangChainAdapter, StreamingTextResponse } from "ai";
 
 // Executa a API na Edge Network da Vercel para baixa latência
 export const runtime = 'edge';
@@ -33,9 +34,6 @@ export async function POST(req: Request) {
     const { messages } = await req.json();
     const question = messages[messages.length - 1].content;
 
-    // A LangChainStream nos permite fazer o streaming da resposta para o frontend
-    const { stream, handlers } = LangChainStream();
-
     // 1. Inicializa os clientes
     const index = new Index({
       url: process.env.UPSTASH_VECTOR_REST_URL!,
@@ -43,10 +41,9 @@ export async function POST(req: Request) {
     });
     const embeddings = new OpenAIEmbeddings({ modelName: "text-embedding-3-small" });
     const llm = new ChatOpenAI({
-      modelName: "gpt-4o-mini", // Um modelo rápido e inteligente
+      modelName: "gpt-4o-mini",
       temperature: 0.2,
       streaming: true,
-      callbacks: [handlers],
     });
 
     // 2. Inicializa o Vector Store e o Retriever
@@ -64,14 +61,17 @@ export async function POST(req: Request) {
       new StringOutputParser(),
     ]);
 
-    // 4. Inicia a execução da cadeia em background
-    chain.invoke(question);
+    // 4. CORREÇÃO: Usa o LangChainAdapter para criar um stream compatível
+    const stream = await chain.stream(question);
 
     // 5. Retorna a resposta em streaming para o cliente
     return new StreamingTextResponse(stream);
 
-  } catch (e: any) {
-    console.error(e);
-    return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+  } catch (e) { // CORREÇÃO: Removido o tipo 'any' para satisfazer o ESLint
+    if (e instanceof Error) {
+        console.error(e);
+        return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+    }
+    return new Response(JSON.stringify({ error: 'An unknown error occurred' }), { status: 500 });
   }
 }
